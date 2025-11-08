@@ -61,6 +61,45 @@ def init_db():
         )
     """)
     
+    # Таблица тренировок по кнопкам
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS button_workouts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            workout_number INTEGER NOT NULL,
+            workout_name TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            UNIQUE(user_id, workout_number)
+        )
+    """)
+    
+    # Таблица упражнений для тренировок по кнопкам
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS button_workout_exercises (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            workout_number INTEGER NOT NULL,
+            exercise_name TEXT NOT NULL,
+            set_number INTEGER NOT NULL,
+            reps INTEGER,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+    
+    # Таблица результатов для тренировок по кнопкам
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS button_workout_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            workout_number INTEGER NOT NULL,
+            exercise_name TEXT NOT NULL,
+            set_number INTEGER NOT NULL,
+            weight REAL,
+            date TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+    
     conn.commit()
     conn.close()
 
@@ -239,4 +278,171 @@ def get_stats(user_id: int) -> Dict[str, float]:
         stats[row['exercise']] = row['max_weight']
     
     return stats
+
+
+def save_button_workout(user_id: int, workout_number: int, workout_name: str, exercises: List[Dict]):
+    """
+    Сохраняет тренировку по кнопкам.
+    
+    Args:
+        user_id: ID пользователя
+        workout_number: Номер тренировки (1, 2, 3, ...)
+        workout_name: Название тренировки
+        exercises: Список упражнений [{'exercise': название, 'sets': [{set_number: 1, reps: 20}, ...]}]
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Сохраняем или обновляем тренировку
+    cursor.execute("""
+        INSERT OR REPLACE INTO button_workouts (user_id, workout_number, workout_name)
+        VALUES (?, ?, ?)
+    """, (user_id, workout_number, workout_name))
+    
+    # Удаляем старые упражнения для этой тренировки
+    cursor.execute("""
+        DELETE FROM button_workout_exercises 
+        WHERE user_id = ? AND workout_number = ?
+    """, (user_id, workout_number))
+    
+    # Сохраняем упражнения
+    for exercise in exercises:
+        exercise_name = exercise['exercise']
+        for set_data in exercise['sets']:
+            cursor.execute("""
+                INSERT INTO button_workout_exercises 
+                (user_id, workout_number, exercise_name, set_number, reps)
+                VALUES (?, ?, ?, ?, ?)
+            """, (user_id, workout_number, exercise_name, set_data['set_number'], set_data['reps']))
+    
+    conn.commit()
+    conn.close()
+
+
+def get_button_workouts(user_id: int) -> List[Dict]:
+    """
+    Получает список всех тренировок по кнопкам пользователя.
+    
+    Args:
+        user_id: ID пользователя
+    
+    Returns:
+        Список тренировок [{'workout_number': 1, 'workout_name': 'Ноги'}, ...]
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT workout_number, workout_name 
+        FROM button_workouts 
+        WHERE user_id = ? 
+        ORDER BY workout_number
+    """, (user_id,))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return [{'workout_number': row['workout_number'], 'workout_name': row['workout_name']} 
+            for row in rows]
+
+
+def get_button_workout_exercises(user_id: int, workout_number: int) -> List[Dict]:
+    """
+    Получает упражнения для тренировки по кнопкам.
+    
+    Args:
+        user_id: ID пользователя
+        workout_number: Номер тренировки
+    
+    Returns:
+        Список упражнений с подходами
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT exercise_name, set_number, reps
+        FROM button_workout_exercises
+        WHERE user_id = ? AND workout_number = ?
+        ORDER BY exercise_name, set_number
+    """, (user_id, workout_number))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    # Группируем по упражнениям
+    exercises = {}
+    for row in rows:
+        ex_name = row['exercise_name']
+        if ex_name not in exercises:
+            exercises[ex_name] = []
+        exercises[ex_name].append({
+            'set_number': row['set_number'],
+            'reps': row['reps']
+        })
+    
+    result = []
+    for ex_name, sets in exercises.items():
+        result.append({
+            'exercise': ex_name,
+            'sets': sets
+        })
+    
+    return result
+
+
+def save_button_workout_result(user_id: int, workout_number: int, exercise_name: str, 
+                                set_number: int, weight: float):
+    """
+    Сохраняет результат выполнения подхода для тренировки по кнопкам.
+    
+    Args:
+        user_id: ID пользователя
+        workout_number: Номер тренировки
+        exercise_name: Название упражнения
+        set_number: Номер подхода
+        weight: Вес в кг
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    cursor.execute("""
+        INSERT INTO button_workout_results 
+        (user_id, workout_number, exercise_name, set_number, weight, date)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (user_id, workout_number, exercise_name, set_number, weight, date))
+    
+    conn.commit()
+    conn.close()
+
+
+def get_last_button_workout_weight(user_id: int, workout_number: int, exercise_name: str, 
+                                   set_number: int) -> Optional[float]:
+    """
+    Получает последний сохраненный вес для упражнения и подхода в тренировке по кнопкам.
+    
+    Args:
+        user_id: ID пользователя
+        workout_number: Номер тренировки
+        exercise_name: Название упражнения
+        set_number: Номер подхода
+    
+    Returns:
+        Последний вес или None
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT weight FROM button_workout_results 
+        WHERE user_id = ? AND workout_number = ? AND exercise_name = ? AND set_number = ?
+        ORDER BY date DESC LIMIT 1
+    """, (user_id, workout_number, exercise_name, set_number))
+    
+    row = cursor.fetchone()
+    conn.close()
+    
+    return row['weight'] if row else None
 

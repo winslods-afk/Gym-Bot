@@ -6,6 +6,7 @@
 - Гакк-присед — 20-16-14-12 (увеличивая вес)
 """
 import re
+from collections import OrderedDict
 from typing import Dict, List, Optional
 
 # Маппинг дней недели (русские сокращения -> полные названия)
@@ -272,7 +273,8 @@ def parse_program(text: str) -> Dict[str, List[Dict]]:
     Raises:
         ValueError: Если формат программы некорректный
     """
-    program = {}
+    # Используем OrderedDict для гарантии сохранения порядка
+    program = OrderedDict()
     
     # Разделяем текст на строки
     lines = text.split('\n')
@@ -290,7 +292,8 @@ def parse_program(text: str) -> Dict[str, List[Dict]]:
         if day:
             # Сохраняем предыдущий день, если есть
             if current_day and current_exercises:
-                program[current_day] = current_exercises
+                # Создаем копию списка для сохранения порядка
+                program[current_day] = list(current_exercises)
             
             # Начинаем новый день
             current_day = day
@@ -334,7 +337,8 @@ def parse_program(text: str) -> Dict[str, List[Dict]]:
     
     # Сохраняем последний день
     if current_day and current_exercises:
-        program[current_day] = current_exercises
+        # Создаем копию списка для сохранения порядка
+        program[current_day] = list(current_exercises)
     
     # Если программа пустая, пробуем старый формат (разделение по ;)
     if not program:

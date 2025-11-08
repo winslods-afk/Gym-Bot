@@ -2,7 +2,7 @@
 Обработчик команды /start и начальных сообщений.
 """
 from aiogram import Router, F
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from database import add_user, get_program
 from utils.keyboards import get_main_keyboard, get_save_program_keyboard

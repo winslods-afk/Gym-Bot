@@ -76,7 +76,60 @@ def init_db():
     except sqlite3.OperationalError:
         pass
     
-    # Таблица результатов тренировок
+    # Таблица сессий тренировок (Workout ID)
+    # Создается когда пользователь начинает тренировку
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS workout_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            program_id INTEGER,
+            day TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (program_id) REFERENCES workout_programs(id) ON DELETE SET NULL
+        )
+    """)
+    
+    # Таблица упражнений в тренировке (Exercise ID)
+    # Привязано к workout_session в определенном порядке
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS workout_exercises (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workout_id INTEGER NOT NULL,
+            exercise_template_id INTEGER,
+            exercise_name TEXT NOT NULL,
+            order_index INTEGER NOT NULL,
+            FOREIGN KEY (workout_id) REFERENCES workout_sessions(id) ON DELETE CASCADE,
+            FOREIGN KEY (exercise_template_id) REFERENCES programs(id) ON DELETE SET NULL
+        )
+    """)
+    
+    # Таблица подходов в упражнении (Set ID)
+    # Привязано к workout_exercise в определенном порядке
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS exercise_sets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            exercise_id INTEGER NOT NULL,
+            set_number INTEGER NOT NULL,
+            order_index INTEGER NOT NULL,
+            FOREIGN KEY (exercise_id) REFERENCES workout_exercises(id) ON DELETE CASCADE
+        )
+    """)
+    
+    # Таблица весов в подходе (Weight ID)
+    # Привязано к exercise_set
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS set_weights (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            set_id INTEGER NOT NULL,
+            weight REAL NOT NULL,
+            recorded_at TEXT NOT NULL,
+            FOREIGN KEY (set_id) REFERENCES exercise_sets(id) ON DELETE CASCADE
+        )
+    """)
+    
+    # Старая таблица results (для обратной совместимости, будет удалена позже)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -91,26 +144,6 @@ def init_db():
             FOREIGN KEY (exercise_id) REFERENCES programs(id) ON DELETE CASCADE
         )
     """)
-    
-    # Миграция: добавляем exercise_id, если его еще нет
-    try:
-        cursor.execute("ALTER TABLE results ADD COLUMN exercise_id INTEGER")
-        # Заполняем exercise_id для существующих записей, находя соответствующий ID по day и exercise
-        cursor.execute("""
-            UPDATE results 
-            SET exercise_id = (
-                SELECT programs.id 
-                FROM programs 
-                WHERE programs.user_id = results.user_id 
-                AND programs.day = results.day 
-                AND programs.exercise = results.exercise 
-                LIMIT 1
-            )
-            WHERE exercise_id IS NULL
-        """)
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
     
     # Таблица тренировок по кнопкам
     cursor.execute("""
@@ -674,6 +707,247 @@ def delete_workout_program(user_id: int, program_id: int):
     
     conn.commit()
     conn.close()
+
+
+# ========== Функции для работы с новой структурой тренировок ==========
+
+def create_workout_session(user_id: int, program_id: int = None, day: str = None) -> int:
+    """
+    Создает новую сессию тренировки (Workout ID).
+    
+    Args:
+        user_id: ID пользователя
+        program_id: ID программы (опционально)
+        day: День недели (опционально)
+    
+    Returns:
+        ID созданной сессии тренировки (Workout ID)
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    started_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    cursor.execute("""
+        INSERT INTO workout_sessions (user_id, program_id, day, started_at)
+        VALUES (?, ?, ?, ?)
+    """, (user_id, program_id, day, started_at))
+    
+    workout_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return workout_id
+
+
+def add_workout_exercise(workout_id: int, exercise_template_id: int = None, exercise_name: str = None, order_index: int = None) -> int:
+    """
+    Добавляет упражнение в тренировку (Exercise ID).
+    
+    Args:
+        workout_id: ID сессии тренировки
+        exercise_template_id: ID упражнения из шаблона (опционально)
+        exercise_name: Название упражнения
+        order_index: Порядковый номер упражнения в тренировке
+    
+    Returns:
+        ID созданного упражнения (Exercise ID)
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Если order_index не указан, определяем автоматически
+    if order_index is None:
+        cursor.execute("""
+            SELECT COALESCE(MAX(order_index), -1) + 1 
+            FROM workout_exercises 
+            WHERE workout_id = ?
+        """, (workout_id,))
+        order_index = cursor.fetchone()[0]
+    
+    cursor.execute("""
+        INSERT INTO workout_exercises (workout_id, exercise_template_id, exercise_name, order_index)
+        VALUES (?, ?, ?, ?)
+    """, (workout_id, exercise_template_id, exercise_name, order_index))
+    
+    exercise_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return exercise_id
+
+
+def add_exercise_set(exercise_id: int, set_number: int, order_index: int = None) -> int:
+    """
+    Добавляет подход к упражнению (Set ID).
+    
+    Args:
+        exercise_id: ID упражнения
+        set_number: Номер подхода (1, 2, 3, ...)
+        order_index: Порядковый номер подхода (опционально)
+    
+    Returns:
+        ID созданного подхода (Set ID)
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Если order_index не указан, определяем автоматически
+    if order_index is None:
+        cursor.execute("""
+            SELECT COALESCE(MAX(order_index), -1) + 1 
+            FROM exercise_sets 
+            WHERE exercise_id = ?
+        """, (exercise_id,))
+        order_index = cursor.fetchone()[0]
+    
+    cursor.execute("""
+        INSERT INTO exercise_sets (exercise_id, set_number, order_index)
+        VALUES (?, ?, ?)
+    """, (exercise_id, set_number, order_index))
+    
+    set_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return set_id
+
+
+def save_set_weight(set_id: int, weight: float) -> int:
+    """
+    Сохраняет вес для подхода (Weight ID).
+    
+    Args:
+        set_id: ID подхода
+        weight: Вес в кг
+    
+    Returns:
+        ID созданной записи веса (Weight ID)
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    recorded_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    cursor.execute("""
+        INSERT INTO set_weights (set_id, weight, recorded_at)
+        VALUES (?, ?, ?)
+    """, (set_id, weight, recorded_at))
+    
+    weight_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return weight_id
+
+
+def get_workout_exercises(workout_id: int) -> List[Dict]:
+    """
+    Получает все упражнения тренировки в правильном порядке.
+    
+    Args:
+        workout_id: ID сессии тренировки
+    
+    Returns:
+        Список упражнений с их подходами в правильном порядке
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT id, exercise_template_id, exercise_name, order_index
+        FROM workout_exercises
+        WHERE workout_id = ?
+        ORDER BY order_index
+    """, (workout_id,))
+    
+    exercises = []
+    for row in cursor.fetchall():
+        exercise_id = row['id']
+        
+        # Получаем подходы для этого упражнения
+        cursor.execute("""
+            SELECT id, set_number, order_index
+            FROM exercise_sets
+            WHERE exercise_id = ?
+            ORDER BY order_index
+        """, (exercise_id,))
+        
+        sets = []
+        for set_row in cursor.fetchall():
+            set_id = set_row['id']
+            
+            # Получаем вес для этого подхода (последний)
+            cursor.execute("""
+                SELECT weight, recorded_at
+                FROM set_weights
+                WHERE set_id = ?
+                ORDER BY recorded_at DESC
+                LIMIT 1
+            """, (set_id,))
+            
+            weight_row = cursor.fetchone()
+            weight = weight_row['weight'] if weight_row else None
+            
+            sets.append({
+                'set_id': set_id,
+                'set_number': set_row['set_number'],
+                'weight': weight
+            })
+        
+        exercises.append({
+            'exercise_id': exercise_id,
+            'exercise_template_id': row['exercise_template_id'],
+            'exercise_name': row['exercise_name'],
+            'sets': sets
+        })
+    
+    conn.close()
+    return exercises
+
+
+def get_current_set_id(workout_id: int, exercise_order: int, set_number: int) -> Optional[int]:
+    """
+    Получает ID текущего подхода.
+    
+    Args:
+        workout_id: ID сессии тренировки
+        exercise_order: Порядковый номер упражнения (0-based)
+        set_number: Номер подхода
+    
+    Returns:
+        ID подхода или None
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Получаем exercise_id по порядковому номеру
+    cursor.execute("""
+        SELECT id FROM workout_exercises
+        WHERE workout_id = ?
+        ORDER BY order_index
+        LIMIT 1 OFFSET ?
+    """, (workout_id, exercise_order))
+    
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return None
+    
+    exercise_id = row['id']
+    
+    # Получаем set_id по номеру подхода
+    cursor.execute("""
+        SELECT id FROM exercise_sets
+        WHERE exercise_id = ? AND set_number = ?
+        ORDER BY order_index
+        LIMIT 1
+    """, (exercise_id, set_number))
+    
+    row = cursor.fetchone()
+    conn.close()
+    
+    return row['id'] if row else None
 
 
 def save_manual_program_workout(user_id: int, program_id: int, workout_number: int, exercises: List[Dict]):

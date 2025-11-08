@@ -70,6 +70,8 @@ def parse_sets_from_exercise(exercise_text: str) -> int:
     - "18-10-14" -> 3 подхода
     - "25-16-20" -> 3 подхода
     - "16-20-25-30" -> 4 подхода
+    - "1 подходов" или "1 подход" -> 1 подход
+    - "3 подходов" или "3 подход" -> 3 подхода
     
     Args:
         exercise_text: Текст с описанием подходов
@@ -79,6 +81,11 @@ def parse_sets_from_exercise(exercise_text: str) -> int:
     """
     # Убираем комментарии в скобках
     exercise_text = re.sub(r'\([^)]*\)', '', exercise_text).strip()
+    
+    # Формат "X подходов" или "X подход" (например: "1 подходов", "3 подход")
+    match = re.search(r'(\d+)\s+подход(?:ов)?', exercise_text, re.IGNORECASE)
+    if match:
+        return int(match.group(1))
     
     # Формат "4х10" или "4x10" (подходы x повторения)
     match = re.search(r'(\d+)\s*[хx]\s*\d+', exercise_text, re.IGNORECASE)

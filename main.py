@@ -4,6 +4,13 @@
 """
 import asyncio
 import logging
+import sys
+from pathlib import Path
+
+# Добавляем текущую директорию в путь для импортов
+current_dir = Path(__file__).parent
+sys.path.insert(0, str(current_dir))
+
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from config import BOT_TOKEN

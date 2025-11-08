@@ -100,6 +100,86 @@ def parse_sets_from_exercise(exercise_text: str) -> int:
     return 1
 
 
+def parse_exercise_with_reps(line: str) -> Optional[Dict]:
+    """
+    Парсит строку с упражнением и извлекает повторения для каждого подхода.
+    Поддерживает форматы:
+    - "Гакк-присед — 4х10" -> 4 подхода по 10 повторений
+    - "Жим ног — 3х12" -> 3 подхода по 12 повторений
+    - "Разгибания ног — 25-16-20" -> 3 подхода: 25, 16, 20 повторений
+    - "Икры стоя — 16-20-25-30" -> 4 подхода: 16, 20, 25, 30 повторений
+    
+    Args:
+        line: Строка с упражнением
+    
+    Returns:
+        Словарь {'exercise': название, 'sets': [{set_number: 1, reps: 20}, ...]} или None
+    """
+    line = line.strip()
+    if not line:
+        return None
+    
+    # Убираем эмодзи и специальные символы в начале
+    line = re.sub(r'^[🔹🔸▪️▫️•\-\s]+', '', line).strip()
+    
+    # Разделяем название упражнения и описание подходов
+    separators = ['—', '–', '-']
+    exercise_name = line
+    sets_description = ""
+    
+    for sep in separators:
+        if sep in line:
+            parts = line.split(sep, 1)
+            if len(parts) == 2:
+                exercise_name = parts[0].strip()
+                sets_description = parts[1].strip()
+                break
+    
+    # Если разделитель не найден, ищем паттерн с числами
+    if not sets_description:
+        match = re.match(r'^(.+?)\s+(\d+[хx]\d+|\d+-\d+.*|\d+)', line)
+        if match:
+            exercise_name = match.group(1).strip()
+            sets_description = match.group(2).strip()
+    
+    if not sets_description:
+        match = re.search(r'(\d+[хx]\d+|\d+-\d+.*|\d+)\s*$', line)
+        if match:
+            num_start = match.start()
+            exercise_name = line[:num_start].strip()
+            sets_description = match.group(1).strip()
+    
+    if not exercise_name:
+        return None
+    
+    # Убираем комментарии в скобках
+    sets_description_clean = re.sub(r'\([^)]*\)', '', sets_description).strip()
+    
+    sets_list = []
+    
+    # Формат "4х10" или "4x10" (подходы x повторения)
+    match = re.search(r'(\d+)\s*[хx]\s*(\d+)', sets_description_clean, re.IGNORECASE)
+    if match:
+        num_sets = int(match.group(1))
+        reps = int(match.group(2))
+        for i in range(1, num_sets + 1):
+            sets_list.append({'set_number': i, 'reps': reps})
+    else:
+        # Формат "20-16-14-12" (диапазоны повторений)
+        numbers = re.findall(r'\d+', sets_description_clean)
+        if numbers:
+            for i, num in enumerate(numbers, 1):
+                sets_list.append({'set_number': i, 'reps': int(num)})
+        else:
+            # Если ничего не найдено, возвращаем 1 подход
+            sets_list.append({'set_number': 1, 'reps': None})
+    
+    return {
+        'exercise': exercise_name,
+        'sets': sets_list
+    }
+
+
 def parse_exercise_line(line: str) -> Optional[Dict]:
     """
     Парсит строку с упражнением.

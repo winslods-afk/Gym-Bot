@@ -588,12 +588,14 @@ def save_program_with_id(user_id: int, program_id: int, program_data: Dict[str, 
         ordered_program = program_data
     
     # Сохраняем новую программу с сохранением порядка
+    # Важно: используем явную итерацию по OrderedDict для сохранения порядка дней
     for day, exercises in ordered_program.items():
         # Убеждаемся, что exercises - это список, сохраняющий порядок
-        if not isinstance(exercises, list):
-            exercises = list(exercises)
+        # Создаем новый список, чтобы гарантировать порядок
+        exercises_list = list(exercises) if isinstance(exercises, list) else list(exercises)
         
-        for order_index, exercise_data in enumerate(exercises):
+        # Сохраняем упражнения в правильном порядке с явным order_index
+        for order_index, exercise_data in enumerate(exercises_list):
             cursor.execute(
                 "INSERT INTO programs (program_id, user_id, day, exercise, sets, order_index) VALUES (?, ?, ?, ?, ?, ?)",
                 (program_id, user_id, day, exercise_data['exercise'], exercise_data['sets'], order_index)

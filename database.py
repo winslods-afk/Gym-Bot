@@ -517,14 +517,26 @@ def save_program_with_id(user_id: int, program_id: int, program_data: Dict[str, 
         program_id: ID программы
         program_data: Словарь с данными программы {день: [упражнения]}
     """
+    from collections import OrderedDict
+    
     conn = get_connection()
     cursor = conn.cursor()
     
     # Удаляем старые упражнения для этой программы
     cursor.execute("DELETE FROM programs WHERE program_id = ? AND user_id = ?", (program_id, user_id))
     
+    # Преобразуем в OrderedDict для гарантии сохранения порядка
+    if not isinstance(program_data, OrderedDict):
+        ordered_program = OrderedDict(program_data)
+    else:
+        ordered_program = program_data
+    
     # Сохраняем новую программу с сохранением порядка
-    for day, exercises in program_data.items():
+    for day, exercises in ordered_program.items():
+        # Убеждаемся, что exercises - это список, сохраняющий порядок
+        if not isinstance(exercises, list):
+            exercises = list(exercises)
+        
         for order_index, exercise_data in enumerate(exercises):
             cursor.execute(
                 "INSERT INTO programs (program_id, user_id, day, exercise, sets, order_index) VALUES (?, ?, ?, ?, ?, ?)",

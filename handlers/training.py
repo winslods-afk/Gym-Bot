@@ -180,8 +180,13 @@ async def confirm_weight_callback(callback: CallbackQuery, state: FSMContext):
         return
     
     exercise = session['exercises'][session['current_ex']]
+    exercise_id = exercise.get('exercise_id')
     exercise_name = exercise['exercise']
     set_number = session['current_set']
+    
+    if not exercise_id:
+        await callback.answer("❌ Ошибка: ID упражнения не найден", show_alert=True)
+        return
     
     # Получаем последний вес
     last_weight = get_last_weight(user_id, exercise_name, set_number)
@@ -191,7 +196,7 @@ async def confirm_weight_callback(callback: CallbackQuery, state: FSMContext):
         return
     
     # Сохраняем вес
-    save_result(user_id, session['day'], exercise_name, set_number, last_weight)
+    save_result(user_id, exercise_id, session['day'], exercise_name, set_number, last_weight)
     
     await callback.answer(f"✅ Сохранено: {last_weight} кг")
     
@@ -233,11 +238,16 @@ async def process_weight_input(message: Message, state: FSMContext):
         return
     
     exercise = session['exercises'][session['current_ex']]
+    exercise_id = exercise.get('exercise_id')
     exercise_name = exercise['exercise']
     set_number = session['current_set']
     
+    if not exercise_id:
+        await message.answer("❌ Ошибка: ID упражнения не найден")
+        return
+    
     # Сохраняем вес
-    save_result(user_id, session['day'], exercise_name, set_number, weight)
+    save_result(user_id, exercise_id, session['day'], exercise_name, set_number, weight)
     
     await message.answer(f"✅ Сохранено: {weight} кг")
     
@@ -281,11 +291,16 @@ async def process_weight_direct(message: Message, state: FSMContext):
         return
     
     exercise = session['exercises'][session['current_ex']]
+    exercise_id = exercise.get('exercise_id')
     exercise_name = exercise['exercise']
     set_number = session['current_set']
     
+    if not exercise_id:
+        await message.answer("❌ Ошибка: ID упражнения не найден")
+        return
+    
     # Сохраняем вес
-    save_result(user_id, session['day'], exercise_name, set_number, weight)
+    save_result(user_id, exercise_id, session['day'], exercise_name, set_number, weight)
     
     await message.answer(f"✅ Сохранено: {weight} кг")
     

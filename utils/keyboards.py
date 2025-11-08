@@ -10,12 +10,13 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     Создает основную клавиатуру с главными кнопками.
     
     Returns:
-        ReplyKeyboardMarkup с кнопками "Начать тренировку" и "Статистика"
+        ReplyKeyboardMarkup с кнопками "Начать тренировку", "Статистика" и "Перезагрузить бота"
     """
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="Начать тренировку")],
-            [KeyboardButton(text="Статистика")]
+            [KeyboardButton(text="Статистика")],
+            [KeyboardButton(text="🔄 Перезагрузить бота")]
         ],
         resize_keyboard=True
     )

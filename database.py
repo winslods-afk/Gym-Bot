@@ -220,15 +220,25 @@ def save_program(user_id: int, program_data: Dict[str, List[Dict]]):
         user_id: ID пользователя
         program_data: Словарь с данными программы {день: [упражнения]}
     """
+    from collections import OrderedDict
+    
     conn = get_connection()
     cursor = conn.cursor()
     
     # Удаляем старую программу пользователя
     cursor.execute("DELETE FROM programs WHERE user_id = ?", (user_id,))
     
+    # Преобразуем в OrderedDict для гарантии сохранения порядка
+    if not isinstance(program_data, OrderedDict):
+        ordered_program = OrderedDict(program_data)
+    else:
+        ordered_program = program_data
+    
     # Сохраняем новую программу с сохранением порядка
-    for day, exercises in program_data.items():
-        for order_index, exercise_data in enumerate(exercises):
+    for day, exercises in ordered_program.items():
+        # Убеждаемся, что exercises - это список, сохраняющий порядок
+        exercises_list = list(exercises) if isinstance(exercises, list) else list(exercises)
+        for order_index, exercise_data in enumerate(exercises_list):
             cursor.execute(
                 "INSERT INTO programs (user_id, day, exercise, sets, order_index) VALUES (?, ?, ?, ?, ?)",
                 (user_id, day, exercise_data['exercise'], exercise_data['sets'], order_index)
@@ -274,9 +284,11 @@ def get_program(user_id: int, day: str = None) -> Dict[str, List[Dict]]:
         day_name = row['day']
         if day_name not in program:
             program[day_name] = []
+        # Добавляем упражнение в правильном порядке (rows уже отсортированы по order_index)
         program[day_name].append({
             'exercise': row['exercise'],
-            'sets': row['sets']
+            'sets': row['sets'],
+            'order_index': row['order_index']  # Сохраняем order_index для отладки
         })
     
     return program
@@ -684,10 +696,12 @@ def get_program_by_id(user_id: int, program_id: int, day: str = None) -> Dict[st
         day_name = row['day']
         if day_name not in program:
             program[day_name] = []
+        # Добавляем упражнение в правильном порядке (rows уже отсортированы по order_index)
         program[day_name].append({
             'exercise_id': row['id'],  # ID упражнения из таблицы programs
             'exercise': row['exercise'],
-            'sets': row['sets']
+            'sets': row['sets'],
+            'order_index': row['order_index']  # Сохраняем order_index для отладки
         })
     
     return program

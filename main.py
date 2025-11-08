@@ -5,24 +5,45 @@
 import asyncio
 import logging
 import sys
+import os
 from pathlib import Path
 
-# Добавляем текущую директорию в путь для импортов
-current_dir = Path(__file__).parent
-sys.path.insert(0, str(current_dir))
+# Добавляем текущую директорию и родительскую в путь для импортов
+# Это необходимо для работы на Render.com и других платформах
+current_dir = Path(__file__).parent.absolute()
+parent_dir = current_dir.parent.absolute()
+working_dir = Path(os.getcwd()).absolute()
 
-from aiogram import Bot, Dispatcher
-from aiogram.fsm.storage.memory import MemoryStorage
-from config import BOT_TOKEN
-from database import init_db
-from handlers import start, training, stats
+# Добавляем пути в sys.path (если их там еще нет)
+# Порядок важен: сначала текущая директория файла, затем рабочая, затем родительская
+for path in [str(current_dir), str(working_dir), str(parent_dir)]:
+    if path and path not in sys.path:
+        sys.path.insert(0, path)
 
-# Настройка логирования
+# Настройка логирования (до импортов, чтобы видеть возможные ошибки)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Логируем пути для отладки
+logger.info(f"Текущая директория файла: {current_dir}")
+logger.info(f"Рабочая директория: {working_dir}")
+logger.info(f"Родительская директория: {parent_dir}")
+logger.info(f"Python path (первые 5): {sys.path[:5]}")
+
+try:
+    from aiogram import Bot, Dispatcher
+    from aiogram.fsm.storage.memory import MemoryStorage
+    from config import BOT_TOKEN
+    from database import init_db
+    from handlers import start, training, stats
+except ImportError as e:
+    logger.error(f"Ошибка импорта: {e}")
+    logger.error(f"Текущая рабочая директория: {os.getcwd()}")
+    logger.error(f"Содержимое текущей директории: {list(current_dir.iterdir())}")
+    raise
 
 
 async def main():

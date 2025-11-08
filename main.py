@@ -82,16 +82,27 @@ def main():
         app = web.Application()
         
         # Настраиваем обработчик webhook
+        # Убираем лишние слеши из пути
+        webhook_path_clean = WEBHOOK_PATH.strip('/')
+        if not webhook_path_clean:
+            webhook_path_clean = "webhook"
+        webhook_path_final = f"/{webhook_path_clean}"
+        
         webhook_requests_handler = SimpleRequestHandler(
             dispatcher=dp,
             bot=bot,
         )
-        webhook_requests_handler.register(app, path=WEBHOOK_PATH)
-        logger.info(f"Webhook handler зарегистрирован на пути: {WEBHOOK_PATH}")
+        webhook_requests_handler.register(app, path=webhook_path_final)
+        logger.info(f"Webhook handler зарегистрирован на пути: {webhook_path_final}")
         
         # Настраиваем startup и shutdown для webhook
         async def on_startup(app):
-            webhook_url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
+            # Убираем лишние слеши из URL
+            webhook_base = WEBHOOK_URL.rstrip('/')
+            webhook_path_clean = WEBHOOK_PATH.strip('/')
+            if not webhook_path_clean:
+                webhook_path_clean = "webhook"
+            webhook_url = f"{webhook_base}/{webhook_path_clean}"
             logger.info(f"Устанавливаем webhook: {webhook_url}")
             try:
                 await bot.set_webhook(webhook_url, drop_pending_updates=True)
@@ -105,13 +116,9 @@ def main():
                 raise  # Пробрасываем ошибку, чтобы сервер не запустился с неработающим webhook
         
         async def on_shutdown(app):
-            logger.info("Останавливаем webhook (shutdown)...")
-            try:
-                # Не удаляем webhook при shutdown, чтобы он оставался активным при перезапуске
-                # await bot.delete_webhook(drop_pending_updates=True)
-                pass
-            except Exception as e:
-                logger.error(f"Ошибка при shutdown: {e}", exc_info=True)
+            logger.info("Shutdown handler вызван (webhook остается активным)...")
+            # НЕ удаляем webhook при shutdown, чтобы он оставался активным при перезапуске
+            # Это важно для Render.com, где сервис может перезапускаться
         
         # Cleanup context для правильного закрытия соединений
         async def cleanup_context(app):
@@ -154,8 +161,12 @@ def main():
         
         # Запускаем веб-сервер (синхронная функция, блокирующая)
         # Соединения будут закрыты автоматически через cleanup_context
+        webhook_base = WEBHOOK_URL.rstrip('/')
+        webhook_path = WEBHOOK_PATH.lstrip('/')
+        final_webhook_url = f"{webhook_base}/{webhook_path}"
         logger.info(f"Веб-сервер запущен на порту {WEBHOOK_PORT}")
-        logger.info(f"Ожидаем обновления на: {WEBHOOK_URL}{WEBHOOK_PATH}")
+        logger.info(f"Ожидаем обновления на: {final_webhook_url}")
+        logger.info(f"Webhook handler зарегистрирован на пути: /{webhook_path}")
         run_app(app, host="0.0.0.0", port=WEBHOOK_PORT)
     else:
         # Используем polling (для локальной разработки)

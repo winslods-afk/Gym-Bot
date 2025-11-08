@@ -146,6 +146,12 @@ async def end_training_callback(callback: CallbackQuery):
     """
     user_id = callback.from_user.id
     
+    # Проверяем, есть ли активная тренировка по кнопкам
+    from handlers.button_workouts import button_training_sessions
+    if user_id in button_training_sessions:
+        # Обрабатывается в button_workouts.py
+        return
+    
     if user_id in training_sessions:
         del training_sessions[user_id]
     
@@ -160,6 +166,13 @@ async def confirm_weight_callback(callback: CallbackQuery, state: FSMContext):
     Использует последний сохраненный вес.
     """
     user_id = callback.from_user.id
+    
+    # Проверяем, есть ли активная тренировка по кнопкам
+    from handlers.button_workouts import button_training_sessions
+    if user_id in button_training_sessions:
+        # Обрабатывается в button_workouts.py
+        return
+    
     session = training_sessions.get(user_id)
     
     if not session:
@@ -241,6 +254,13 @@ async def process_weight_direct(message: Message, state: FSMContext):
     Работает только если есть активная сессия тренировки.
     """
     user_id = message.from_user.id
+    
+    # Проверяем, есть ли активная тренировка по кнопкам
+    from handlers.button_workouts import button_training_sessions
+    if user_id in button_training_sessions:
+        # Вес обработается в button_workouts.py
+        return
+    
     session = training_sessions.get(user_id)
     
     # Если нет активной сессии, игнорируем

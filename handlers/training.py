@@ -426,7 +426,17 @@ async def start_training_session_with_program(message: Message, program_id: int)
     
     # Получаем упражнения для текущего дня
     # Убеждаемся, что используем список в правильном порядке
-    exercises = list(program.get(day, []))
+    # Важно: program - это OrderedDict, поэтому порядок сохраняется
+    exercises = program.get(day, [])
+    # Создаем новый список, чтобы гарантировать сохранение порядка
+    # Сортируем по order_index, если он есть, для гарантии правильного порядка
+    if exercises:
+        exercises = list(exercises)  # Копируем список
+        # Если у упражнений есть order_index, сортируем по нему
+        if exercises and 'order_index' in exercises[0]:
+            exercises.sort(key=lambda x: x.get('order_index', 0))
+    else:
+        exercises = []
     
     if not exercises:
         # Если упражнения не найдены, показываем список доступных дней

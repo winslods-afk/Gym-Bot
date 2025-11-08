@@ -249,6 +249,8 @@ def get_program(user_id: int, day: str = None) -> Dict[str, List[Dict]]:
     Returns:
         Словарь с программой {день: [упражнения]} в правильном порядке
     """
+    from collections import OrderedDict
+    
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -266,7 +268,8 @@ def get_program(user_id: int, day: str = None) -> Dict[str, List[Dict]]:
     rows = cursor.fetchall()
     conn.close()
     
-    program = {}
+    # Используем OrderedDict для гарантии сохранения порядка
+    program = OrderedDict()
     for row in rows:
         day_name = row['day']
         if day_name not in program:

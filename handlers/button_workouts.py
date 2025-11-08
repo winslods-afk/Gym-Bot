@@ -243,13 +243,45 @@ async def confirm_workout(callback: CallbackQuery, state: FSMContext):
     
     # Удаляем из временного хранилища
     del workout_creation_sessions[user_id]
+    
+    # Получаем данные о количестве тренировок из состояния
+    data = await state.get_data()
+    workout_count = data.get('workout_count')
+    
+    # Получаем уже созданные тренировки
+    workouts = get_button_workouts(user_id)
+    created_count = len(workouts)
+    
+    # Если не все тренировки созданы, показываем кнопки для создания оставшихся
+    if workout_count and created_count < workout_count:
+        # Создаем кнопки только для еще не созданных тренировок
+        created_numbers = {w['workout_number'] for w in workouts}
+        buttons = []
+        for i in range(1, workout_count + 1):
+            if i not in created_numbers:
+                buttons.append([InlineKeyboardButton(
+                    text=f"Тренировка {i}",
+                    callback_data=f"create_workout_{i}"
+                )])
+        
+        if buttons:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+            await callback.message.answer(
+                f"📝 Создано {created_count} из {workout_count} тренировок.\n\n"
+                "Нажми на кнопку, чтобы настроить следующую тренировку:",
+                reply_markup=keyboard
+            )
+            # Не очищаем состояние, чтобы сохранить workout_count
+            return
+    
+    # Все тренировки созданы или workout_count не указан
     await state.clear()
     
-    # Показываем меню тренировок
-    workouts = get_button_workouts(user_id)
+    # Показываем меню тренировок для выполнения
     if workouts:
         from utils.keyboards import get_workout_buttons_keyboard
         await callback.message.answer(
+            "✅ Все тренировки созданы!\n\n"
             "Выбери тренировку для выполнения:",
             reply_markup=get_workout_buttons_keyboard(workouts)
         )

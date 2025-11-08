@@ -6,7 +6,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from database import get_program, save_result, get_last_weight
+from database import get_program, save_result, get_last_weight, get_program_by_id
 from utils.keyboards import get_training_control_keyboard, get_confirm_keyboard
 from utils.helpers import format_training_exercises
 import database
@@ -330,4 +330,60 @@ async def move_to_next_set(message: Message, user_id: int):
                 "🎉 Тренировка завершена! Отличная работа! 💪\n\n"
                 "Все результаты сохранены. Используй /stats для просмотра статистики."
             )
+
+
+async def start_training_session_with_program(message: Message, program_id: int):
+    """
+    Начинает сессию тренировки для загруженной программы.
+    
+    Args:
+        message: Сообщение от пользователя
+        program_id: ID программы
+    """
+    from parser import get_current_day
+    
+    user_id = message.from_user.id
+    
+    # Получаем программу по ID
+    program = get_program_by_id(user_id, program_id)
+    
+    if not program:
+        await message.answer("❌ Программа не найдена.")
+        return
+    
+    # Определяем текущий день
+    day = get_current_day()
+    
+    # Проверяем, есть ли программа на этот день
+    if day not in program:
+        # Показываем список доступных дней
+        days_list = "\n".join([f"• {d}" for d in program.keys()])
+        await message.answer(
+            f"❌ У тебя нет программы на {day}.\n\n"
+            f"Доступные дни:\n{days_list}\n\n"
+            "Выбери день из списка или дождись нужного дня недели."
+        )
+        return
+    
+    exercises = program[day]
+    
+    # Сохраняем сессию тренировки
+    training_sessions[user_id] = {
+        'day': day,
+        'exercises': exercises,
+        'current_ex': 0,
+        'current_set': 1,
+        'program_id': program_id
+    }
+    
+    # Отправляем список упражнений
+    exercises_text = format_training_exercises(day, exercises)
+    await message.answer(
+        f"{exercises_text}\n"
+        "Начинаем тренировку! После каждого подхода отправь вес в кг (например: 60).",
+        reply_markup=get_training_control_keyboard()
+    )
+    
+    # Начинаем с первого упражнения и первого подхода
+    await ask_for_weight(message, user_id)
 

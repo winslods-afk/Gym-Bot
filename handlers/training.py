@@ -425,7 +425,8 @@ async def start_training_session_with_program(message: Message, program_id: int)
         return
     
     # Получаем упражнения для текущего дня
-    exercises = program.get(day, [])
+    # Убеждаемся, что используем список в правильном порядке
+    exercises = list(program.get(day, []))
     
     if not exercises:
         # Если упражнения не найдены, показываем список доступных дней
@@ -445,18 +446,22 @@ async def start_training_session_with_program(message: Message, program_id: int)
     workout_id = create_workout_session(user_id, program_id=program_id, day=day)
     
     # Добавляем упражнения в тренировку в правильном порядке (Exercise ID)
+    # ВАЖНО: используем явную итерацию по списку, чтобы гарантировать порядок
     exercise_ids = []
-    for order_index, exercise_data in enumerate(exercises):
+    # Создаем копию списка для гарантии порядка
+    exercises_list = list(exercises) if isinstance(exercises, list) else list(exercises)
+    
+    for order_index, exercise_data in enumerate(exercises_list):
         exercise_template_id = exercise_data.get('exercise_id')
         exercise_name = exercise_data['exercise']
         sets_count = exercise_data['sets']
         
-        # Создаем упражнение в тренировке
+        # Создаем упражнение в тренировке с явным order_index
         exercise_id = add_workout_exercise(
             workout_id=workout_id,
             exercise_template_id=exercise_template_id,
             exercise_name=exercise_name,
-            order_index=order_index
+            order_index=order_index  # Явно указываем порядок
         )
         exercise_ids.append(exercise_id)
         
@@ -465,14 +470,15 @@ async def start_training_session_with_program(message: Message, program_id: int)
             add_exercise_set(
                 exercise_id=exercise_id,
                 set_number=set_num,
-                order_index=set_num - 1
+                order_index=set_num - 1  # Явно указываем порядок
             )
     
     # Сохраняем сессию тренировки
+    # ВАЖНО: используем exercises_list для сохранения правильного порядка
     training_sessions[user_id] = {
         'workout_id': workout_id,  # Workout ID
         'day': day,
-        'exercises': exercises,
+        'exercises': exercises_list,  # Используем список в правильном порядке
         'exercise_ids': exercise_ids,  # Exercise IDs в порядке
         'current_ex': 0,
         'current_set': 1,
@@ -480,7 +486,7 @@ async def start_training_session_with_program(message: Message, program_id: int)
     }
     
     # Отправляем список упражнений
-    exercises_text = format_training_exercises(day, exercises)
+    exercises_text = format_training_exercises(day, exercises_list)
     await message.answer(
         f"{exercises_text}\n"
         "Начинаем тренировку! После каждого подхода отправь вес в кг (например: 60).",

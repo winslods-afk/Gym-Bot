@@ -4,6 +4,7 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 from database import add_user, get_program
 from utils.keyboards import get_main_keyboard, get_save_program_keyboard
 from parser import parse_program, get_current_day
@@ -78,6 +79,47 @@ async def stats_button(message: Message):
     await cmd_stats(message)
 
 
+@router.message(F.text == "🔄 Перезагрузить бота")
+async def restart_bot(message: Message, state: FSMContext):
+    """
+    Обработчик кнопки "Перезагрузить бота".
+    Очищает все состояния и возвращает в начало.
+    """
+    user_id = message.from_user.id
+    
+    # Очищаем состояние FSM
+    await state.clear()
+    
+    # Очищаем временные хранилища из других модулей
+    import handlers.button_workouts as button_workouts_module
+    if user_id in button_workouts_module.workout_creation_sessions:
+        del button_workouts_module.workout_creation_sessions[user_id]
+    if user_id in button_workouts_module.button_training_sessions:
+        del button_workouts_module.button_training_sessions[user_id]
+    
+    # Очищаем временные программы
+    if hasattr(database, 'temp_programs') and user_id in database.temp_programs:
+        del database.temp_programs[user_id]
+    
+    # Очищаем сессии тренировок из training.py
+    try:
+        import handlers.training as training_module
+        if hasattr(training_module, 'training_sessions') and user_id in training_module.training_sessions:
+            del training_module.training_sessions[user_id]
+    except:
+        pass
+    
+    # Возвращаем в начало
+    from utils.keyboards import get_mode_selection_keyboard
+    
+    await message.answer(
+        "🔄 Бот перезагружен!\n\n"
+        "👋 Привет! Я бот для отслеживания тренировок и рабочих весов.\n\n"
+        "Выбери режим работы:",
+        reply_markup=get_mode_selection_keyboard()
+    )
+
+
 @router.callback_query(F.data == "mode_full_program")
 async def handle_full_program_mode(callback: CallbackQuery):
     """
@@ -102,7 +144,7 @@ async def handle_full_program_mode(callback: CallbackQuery):
     )
 
 
-@router.message(F.text & ~F.text.in_(["Начать тренировку", "Статистика"]))
+@router.message(F.text & ~F.text.in_(["Начать тренировку", "Статистика", "🔄 Перезагрузить бота"]))
 async def handle_program_text(message: Message):
     """
     Обработчик текстовых сообщений с программой тренировок.

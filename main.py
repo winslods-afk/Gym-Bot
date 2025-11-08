@@ -42,7 +42,7 @@ try:
     from aiohttp.web import run_app
     from config import BOT_TOKEN, WEBHOOK_URL, WEBHOOK_PORT, WEBHOOK_PATH
     from database import init_db
-    from handlers import start, training, stats
+    from handlers import start, training, stats, button_workouts
 except ImportError as e:
     logger.error(f"Ошибка импорта: {e}")
     logger.error(f"Текущая рабочая директория: {os.getcwd()}")
@@ -67,6 +67,7 @@ def main():
     # Регистрируем роутеры (обработчики)
     # Важно: training.router должен быть зарегистрирован первым,
     # чтобы перехватывать ввод весов во время тренировки
+    dp.include_router(button_workouts.router)  # Тренировки по кнопкам
     dp.include_router(training.router)
     dp.include_router(stats.router)
     dp.include_router(start.router)  # В конце, так как содержит общий обработчик текста

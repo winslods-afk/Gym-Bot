@@ -177,6 +177,26 @@ def get_delete_program_keyboard(programs: List[Dict], user_id: int = None) -> In
     return keyboard
 
 
+def get_persistent_menu_keyboard() -> ReplyKeyboardMarkup:
+    """
+    Создает постоянное меню с основными кнопками.
+    
+    Returns:
+        ReplyKeyboardMarkup с кнопками "Начать тренировку", "Удалить тренировку", "Перезапустить бота"
+    """
+    keyboard_buttons = [
+        [KeyboardButton(text="Начать тренировку")],
+        [KeyboardButton(text="Удалить тренировку")],
+        [KeyboardButton(text="Перезапустить бота")]
+    ]
+    
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=keyboard_buttons,
+        resize_keyboard=True
+    )
+    return keyboard
+
+
 def get_restart_keyboard(has_programs: bool = False) -> ReplyKeyboardMarkup:
     """
     Создает клавиатуру для перезапуска бота с опциональной кнопкой удаления программ.

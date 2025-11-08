@@ -8,7 +8,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from database import (
     save_button_workout, get_button_workouts, get_button_workout_exercises,
-    save_button_workout_result, get_last_button_workout_weight
+    save_button_workout_result, get_last_button_workout_weight,
+    save_manual_program_workout
 )
 from utils.keyboards import (
     get_workout_count_keyboard, get_workout_buttons_keyboard,
@@ -101,6 +102,32 @@ async def start_workout_creation(callback: CallbackQuery, state: FSMContext):
     )
 
 
+@router.callback_query(F.data.startswith("create_manual_workout_"))
+async def start_manual_workout_creation(callback: CallbackQuery, state: FSMContext):
+    """
+    Обработчик начала создания тренировки для ручной программы.
+    Просит ввести упражнения.
+    """
+    await callback.answer()
+    parts = callback.data.split("_")
+    program_id = int(parts[-2])
+    workout_number = int(parts[-1])
+    
+    await state.set_state(ButtonWorkoutState.waiting_for_exercises)
+    await state.update_data(program_id=program_id, workout_number=workout_number)
+    
+    await callback.message.answer(
+        f"🏋️ Настройка тренировки {workout_number}\n\n"
+        "Отправь упражнения в формате:\n\n"
+        "Гакк-присед — 20-16-14-12 (увеличивая вес)\n"
+        "Жим ног по одной — 18-10-14\n"
+        "Разгибания ног — 25-16-20\n\n"
+        "Или:\n"
+        "Гакк-присед — 4х10\n"
+        "Жим ног — 3х12"
+    )
+
+
 @router.message(ButtonWorkoutState.waiting_for_workout_name)
 async def process_workout_name(message: Message, state: FSMContext):
     """
@@ -136,6 +163,7 @@ async def process_exercises(message: Message, state: FSMContext):
     data = await state.get_data()
     workout_number = data.get('workout_number')
     workout_name = data.get('workout_name')
+    program_id = data.get('program_id')  # Для ручных программ
     
     user_id = message.from_user.id
     
@@ -168,12 +196,13 @@ async def process_exercises(message: Message, state: FSMContext):
     # Сохраняем во временное хранилище
     workout_creation_sessions[user_id] = {
         'workout_number': workout_number,
-        'workout_name': workout_name,
-        'exercises': exercises
+        'workout_name': workout_name or f"Тренировка {workout_number}",
+        'exercises': exercises,
+        'program_id': program_id  # Для ручных программ
     }
     
     # Форматируем для показа
-    workout_text = format_button_workout_preview(workout_name, exercises)
+    workout_text = format_button_workout_preview(workout_creation_sessions[user_id]['workout_name'], exercises)
     
     await state.set_state(ButtonWorkoutState.confirming_workout)
     await message.answer(
@@ -228,8 +257,63 @@ async def confirm_workout(callback: CallbackQuery, state: FSMContext):
         return
     
     session = workout_creation_sessions[user_id]
+    program_id = session.get('program_id')
     
-    # Сохраняем в базу
+    if program_id:
+        # Это ручная программа - сохраняем в programs
+        save_manual_program_workout(
+            user_id,
+            program_id,
+            session['workout_number'],
+            session['exercises']
+        )
+        
+        await callback.message.answer(
+            f"✅ Тренировка {session['workout_number']} сохранена!"
+        )
+        
+        # Получаем данные о количестве тренировок
+        from database import get_user_programs
+        programs = get_user_programs(user_id)
+        program = next((p for p in programs if p['id'] == program_id), None)
+        workout_count = program['workout_count'] if program else None
+        
+        # Получаем уже созданные тренировки для этой программы
+        from database import get_program_by_id
+        program_data = get_program_by_id(user_id, program_id)
+        created_count = len([d for d in program_data.keys() if d.startswith("Тренировка ")])
+        
+        # Если не все тренировки созданы, показываем кнопки для создания оставшихся
+        if workout_count and created_count < workout_count:
+            buttons = []
+            for i in range(1, workout_count + 1):
+                day = f"Тренировка {i}"
+                if day not in program_data:
+                    buttons.append([InlineKeyboardButton(
+                        text=f"Тренировка {i}",
+                        callback_data=f"create_manual_workout_{program_id}_{i}"
+                    )])
+            
+            if buttons:
+                keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+                await callback.message.answer(
+                    f"📝 Создано {created_count} из {workout_count} тренировок.\n\n"
+                    "Нажми на кнопку, чтобы настроить следующую тренировку:",
+                    reply_markup=keyboard
+                )
+                del workout_creation_sessions[user_id]
+                await state.clear()
+                return
+        
+        # Все тренировки созданы
+        await callback.message.answer(
+            "✅ Все тренировки созданы! Программа готова к использованию."
+        )
+        del workout_creation_sessions[user_id]
+        await state.clear()
+        return
+    
+    # Обычная тренировка по кнопкам - сохраняем в button_workouts
     save_button_workout(
         user_id,
         session['workout_number'],
@@ -312,30 +396,64 @@ async def select_workout(callback: CallbackQuery):
     workout_number = int(callback.data.split("_")[-1])
     user_id = callback.from_user.id
     
-    # Получаем упражнения тренировки
-    exercises = get_button_workout_exercises(user_id, workout_number)
-    
-    if not exercises:
-        await callback.message.answer("❌ Тренировка не найдена")
-        return
-    
-    # Получаем название тренировки
-    workouts = get_button_workouts(user_id)
-    workout_name = next((w['workout_name'] for w in workouts if w['workout_number'] == workout_number), f"Тренировка {workout_number}")
-    
-    # Сохраняем сессию тренировки
-    button_training_sessions[user_id] = {
-        'workout_number': workout_number,
-        'workout_name': workout_name,
-        'exercises': exercises,
-        'current_ex': 0,
-        'current_set': 0
-    }
+    # Проверяем, это ручная программа или обычная тренировка по кнопкам
+    if user_id in button_training_sessions and button_training_sessions[user_id].get('type') == 'manual_program':
+        # Это ручная программа
+        session = button_training_sessions[user_id]
+        workouts = session.get('workouts', [])
+        workout = next((w for w in workouts if w['workout_number'] == workout_number), None)
+        
+        if not workout:
+            await callback.message.answer("❌ Тренировка не найдена")
+            return
+        
+        # Преобразуем упражнения в формат для тренировки
+        exercises = []
+        for ex in workout['exercises']:
+            exercises.append({
+                'exercise': ex['exercise'],
+                'sets': ex['sets']
+            })
+        
+        # Сохраняем сессию тренировки
+        button_training_sessions[user_id] = {
+            'program_id': session['program_id'],
+            'workout_number': workout_number,
+            'workout_name': workout['workout_name'],
+            'exercises': exercises,
+            'current_ex': 0,
+            'current_set': 0,
+            'type': 'manual_program'
+        }
+    else:
+        # Обычная тренировка по кнопкам
+        exercises = get_button_workout_exercises(user_id, workout_number)
+        
+        if not exercises:
+            await callback.message.answer("❌ Тренировка не найдена")
+            return
+        
+        # Получаем название тренировки
+        workouts = get_button_workouts(user_id)
+        workout_name = next((w['workout_name'] for w in workouts if w['workout_number'] == workout_number), f"Тренировка {workout_number}")
+        
+        # Сохраняем сессию тренировки
+        button_training_sessions[user_id] = {
+            'workout_number': workout_number,
+            'workout_name': workout_name,
+            'exercises': exercises,
+            'current_ex': 0,
+            'current_set': 0
+        }
     
     # Форматируем список упражнений
-    exercises_text = f"🏋️ {workout_name}:\n\n"
-    for i, ex in enumerate(exercises, 1):
-        sets_count = len(ex['sets'])
+    session = button_training_sessions[user_id]
+    exercises_text = f"🏋️ {session['workout_name']}:\n\n"
+    for i, ex in enumerate(session['exercises'], 1):
+        if isinstance(ex['sets'], list):
+            sets_count = len(ex['sets'])
+        else:
+            sets_count = ex['sets']
         exercises_text += f"{i}. {ex['exercise']} — {sets_count} подходов\n"
     
     await callback.message.answer(
@@ -493,3 +611,83 @@ async def end_button_workout_callback(callback: CallbackQuery):
         await callback.answer("Тренировка завершена!", show_alert=True)
         await callback.message.answer("✅ Тренировка завершена! Отличная работа! 💪")
 
+
+# ========== Функции для работы с ручными программами ==========
+
+async def start_manual_program_creation(message: Message, program_id: int, workout_count: int):
+    """
+    Начинает создание ручной программы.
+    
+    Args:
+        message: Сообщение от пользователя
+        program_id: ID программы
+        workout_count: Количество тренировок
+    """
+    from aiogram.fsm.context import FSMContext
+    from aiogram.fsm.state import State, StatesGroup
+    
+    # Создаем кнопки для каждой тренировки
+    buttons = []
+    for i in range(1, workout_count + 1):
+        buttons.append([InlineKeyboardButton(
+            text=f"Тренировка {i}",
+            callback_data=f"create_manual_workout_{program_id}_{i}"
+        )])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    
+    await message.answer(
+        f"✅ Программа создана. Количество тренировок: {workout_count}\n\n"
+        "Нажми на кнопку тренировки, чтобы начать её настройку:",
+        reply_markup=keyboard
+    )
+
+
+async def start_manual_program_training(message: Message, program_id: int):
+    """
+    Начинает тренировку ручной программы.
+    
+    Args:
+        message: Сообщение от пользователя
+        program_id: ID программы
+    """
+    from database import get_program_by_id
+    from utils.keyboards import get_workout_buttons_keyboard
+    
+    user_id = message.from_user.id
+    program = get_program_by_id(user_id, program_id)
+    
+    if not program:
+        await message.answer("❌ Программа не найдена")
+        return
+    
+    # Создаем список тренировок для выбора
+    workouts = []
+    for day, exercises in program.items():
+        if day.startswith("Тренировка "):
+            workout_number = int(day.split()[-1])
+            workouts.append({
+                'workout_number': workout_number,
+                'workout_name': day,
+                'exercises': exercises
+            })
+    
+    workouts.sort(key=lambda x: x['workout_number'])
+    
+    # Сохраняем в сессию для тренировки
+    button_training_sessions[user_id] = {
+        'program_id': program_id,
+        'workouts': workouts,
+        'type': 'manual_program'
+    }
+    
+    # Показываем кнопки для выбора тренировки
+    workout_buttons = [
+        {'workout_number': w['workout_number'], 'workout_name': w['workout_name']}
+        for w in workouts
+    ]
+    
+    await message.answer(
+        "Выбери тренировку:",
+        reply_markup=get_workout_buttons_keyboard(workout_buttons)
+    )

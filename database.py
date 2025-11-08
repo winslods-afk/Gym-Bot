@@ -81,14 +81,36 @@ def init_db():
         CREATE TABLE IF NOT EXISTS results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
+            exercise_id INTEGER,
             day TEXT NOT NULL,
             exercise TEXT NOT NULL,
             set_number INTEGER NOT NULL,
             weight REAL,
             date TEXT NOT NULL,
-            FOREIGN KEY (user_id) REFERENCES users(id)
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (exercise_id) REFERENCES programs(id) ON DELETE CASCADE
         )
     """)
+    
+    # Миграция: добавляем exercise_id, если его еще нет
+    try:
+        cursor.execute("ALTER TABLE results ADD COLUMN exercise_id INTEGER")
+        # Заполняем exercise_id для существующих записей, находя соответствующий ID по day и exercise
+        cursor.execute("""
+            UPDATE results 
+            SET exercise_id = (
+                SELECT programs.id 
+                FROM programs 
+                WHERE programs.user_id = results.user_id 
+                AND programs.day = results.day 
+                AND programs.exercise = results.exercise 
+                LIMIT 1
+            )
+            WHERE exercise_id IS NULL
+        """)
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
     
     # Таблица тренировок по кнопкам
     cursor.execute("""
@@ -224,14 +246,15 @@ def get_program(user_id: int, day: str = None) -> Dict[str, List[Dict]]:
     return program
 
 
-def save_result(user_id: int, day: str, exercise: str, set_number: int, weight: float):
+def save_result(user_id: int, exercise_id: int, day: str, exercise: str, set_number: int, weight: float):
     """
     Сохраняет результат выполнения подхода.
     
     Args:
         user_id: ID пользователя
+        exercise_id: ID упражнения из таблицы programs
         day: День недели
-        exercise: Название упражнения
+        exercise: Название упражнения (для обратной совместимости)
         set_number: Номер подхода
         weight: Вес в кг
     """
@@ -241,9 +264,9 @@ def save_result(user_id: int, day: str, exercise: str, set_number: int, weight: 
     date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     cursor.execute(
-        """INSERT INTO results (user_id, day, exercise, set_number, weight, date)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (user_id, day, exercise, set_number, weight, date)
+        """INSERT INTO results (user_id, exercise_id, day, exercise, set_number, weight, date)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, exercise_id, day, exercise, set_number, weight, date)
     )
     
     conn.commit()
@@ -592,6 +615,7 @@ def get_program_by_id(user_id: int, program_id: int, day: str = None) -> Dict[st
     
     Returns:
         Словарь с программой {день: [упражнения]} в правильном порядке
+        Каждое упражнение содержит: exercise_id, exercise, sets
     """
     from collections import OrderedDict
     
@@ -600,14 +624,14 @@ def get_program_by_id(user_id: int, program_id: int, day: str = None) -> Dict[st
     
     if day:
         cursor.execute("""
-            SELECT day, exercise, sets, order_index 
+            SELECT id, day, exercise, sets, order_index 
             FROM programs 
             WHERE user_id = ? AND program_id = ? AND day = ? 
             ORDER BY order_index
         """, (user_id, program_id, day))
     else:
         cursor.execute("""
-            SELECT day, exercise, sets, order_index 
+            SELECT id, day, exercise, sets, order_index 
             FROM programs 
             WHERE user_id = ? AND program_id = ? 
             ORDER BY day, order_index
@@ -623,6 +647,7 @@ def get_program_by_id(user_id: int, program_id: int, day: str = None) -> Dict[st
         if day_name not in program:
             program[day_name] = []
         program[day_name].append({
+            'exercise_id': row['id'],  # ID упражнения из таблицы programs
             'exercise': row['exercise'],
             'sets': row['sets']
         })

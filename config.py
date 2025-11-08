@@ -19,7 +19,9 @@ if not BOT_TOKEN:
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 # Порт для веб-сервера (по умолчанию 8000, Render.com автоматически определяет порт)
-WEBHOOK_PORT = int(os.getenv("PORT", os.getenv("WEBHOOK_PORT", "8000")))
+# Обрабатываем случай, когда PORT может быть пустой строкой
+port_str = os.getenv("PORT") or os.getenv("WEBHOOK_PORT") or "8000"
+WEBHOOK_PORT = int(port_str) if port_str.strip() else 8000
 
 # Путь для webhook (по умолчанию /webhook)
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")

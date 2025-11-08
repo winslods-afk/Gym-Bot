@@ -344,20 +344,21 @@ async def start_training_session_with_program(message: Message, program_id: int)
     
     user_id = message.from_user.id
     
-    # Получаем программу по ID
-    program = get_program_by_id(user_id, program_id)
-    
-    if not program:
-        await message.answer("❌ Программа не найдена.")
-        return
-    
     # Определяем текущий день
     day = get_current_day()
     
-    # Проверяем, есть ли программа на этот день
-    if day not in program:
+    # Получаем программу по ID для конкретного дня
+    program = get_program_by_id(user_id, program_id, day=day)
+    
+    if not program:
+        # Если программа не найдена для этого дня, получаем все дни для показа списка
+        all_program = get_program_by_id(user_id, program_id)
+        if not all_program:
+            await message.answer("❌ Программа не найдена.")
+            return
+        
         # Показываем список доступных дней
-        days_list = "\n".join([f"• {d}" for d in program.keys()])
+        days_list = "\n".join([f"• {d}" for d in all_program.keys()])
         await message.answer(
             f"❌ У тебя нет программы на {day}.\n\n"
             f"Доступные дни:\n{days_list}\n\n"
@@ -365,7 +366,22 @@ async def start_training_session_with_program(message: Message, program_id: int)
         )
         return
     
-    exercises = program[day]
+    # Получаем упражнения для текущего дня
+    exercises = program.get(day, [])
+    
+    if not exercises:
+        # Если упражнения не найдены, показываем список доступных дней
+        all_program = get_program_by_id(user_id, program_id)
+        if all_program:
+            days_list = "\n".join([f"• {d}" for d in all_program.keys()])
+            await message.answer(
+                f"❌ У тебя нет программы на {day}.\n\n"
+                f"Доступные дни:\n{days_list}\n\n"
+                "Выбери день из списка или дождись нужного дня недели."
+            )
+            return
+        await message.answer("❌ Программа не найдена.")
+        return
     
     # Сохраняем сессию тренировки
     training_sessions[user_id] = {

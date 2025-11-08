@@ -35,17 +35,46 @@ def init_db():
         )
     """)
     
-    # Таблица программ тренировок
+    # Таблица программ тренировок (метаданные)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS workout_programs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            program_name TEXT NOT NULL,
+            program_type TEXT NOT NULL,
+            workout_count INTEGER,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+    
+    # Таблица программ тренировок (упражнения)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS programs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            program_id INTEGER,
             user_id INTEGER NOT NULL,
             day TEXT NOT NULL,
             exercise TEXT NOT NULL,
             sets INTEGER NOT NULL,
-            FOREIGN KEY (user_id) REFERENCES users(id)
+            order_index INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (program_id) REFERENCES workout_programs(id) ON DELETE CASCADE
         )
     """)
+    
+    # Миграция: добавляем program_id, если его еще нет
+    try:
+        cursor.execute("ALTER TABLE programs ADD COLUMN program_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
+    
+    # Миграция: добавляем order_index, если его еще нет
+    try:
+        cursor.execute("ALTER TABLE programs ADD COLUMN order_index INTEGER DEFAULT 0")
+        cursor.execute("UPDATE programs SET order_index = id WHERE order_index IS NULL")
+    except sqlite3.OperationalError:
+        pass
     
     # Таблица результатов тренировок
     cursor.execute("""
@@ -142,12 +171,12 @@ def save_program(user_id: int, program_data: Dict[str, List[Dict]]):
     # Удаляем старую программу пользователя
     cursor.execute("DELETE FROM programs WHERE user_id = ?", (user_id,))
     
-    # Сохраняем новую программу
+    # Сохраняем новую программу с сохранением порядка
     for day, exercises in program_data.items():
-        for exercise_data in exercises:
+        for order_index, exercise_data in enumerate(exercises):
             cursor.execute(
-                "INSERT INTO programs (user_id, day, exercise, sets) VALUES (?, ?, ?, ?)",
-                (user_id, day, exercise_data['exercise'], exercise_data['sets'])
+                "INSERT INTO programs (user_id, day, exercise, sets, order_index) VALUES (?, ?, ?, ?, ?)",
+                (user_id, day, exercise_data['exercise'], exercise_data['sets'], order_index)
             )
     
     conn.commit()
@@ -163,19 +192,19 @@ def get_program(user_id: int, day: str = None) -> Dict[str, List[Dict]]:
         day: День недели (опционально, если None - возвращает всю программу)
     
     Returns:
-        Словарь с программой {день: [упражнения]}
+        Словарь с программой {день: [упражнения]} в правильном порядке
     """
     conn = get_connection()
     cursor = conn.cursor()
     
     if day:
         cursor.execute(
-            "SELECT day, exercise, sets FROM programs WHERE user_id = ? AND day = ?",
+            "SELECT day, exercise, sets, order_index FROM programs WHERE user_id = ? AND day = ? ORDER BY order_index",
             (user_id, day)
         )
     else:
         cursor.execute(
-            "SELECT day, exercise, sets FROM programs WHERE user_id = ?",
+            "SELECT day, exercise, sets, order_index FROM programs WHERE user_id = ? ORDER BY day, order_index",
             (user_id,)
         )
     
@@ -446,3 +475,198 @@ def get_last_button_workout_weight(user_id: int, workout_number: int, exercise_n
     
     return row['weight'] if row else None
 
+
+# ========== Функции для работы с программами тренировок ==========
+
+def create_workout_program(user_id: int, program_name: str, program_type: str, workout_count: int = None) -> int:
+    """
+    Создает новую программу тренировок.
+    
+    Args:
+        user_id: ID пользователя
+        program_name: Название программы
+        program_type: Тип программы ('uploaded' или 'manual')
+        workout_count: Количество тренировок (для manual программ)
+    
+    Returns:
+        ID созданной программы
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    cursor.execute("""
+        INSERT INTO workout_programs (user_id, program_name, program_type, workout_count, created_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, (user_id, program_name, program_type, workout_count, created_at))
+    
+    program_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return program_id
+
+
+def save_program_with_id(user_id: int, program_id: int, program_data: Dict[str, List[Dict]]):
+    """
+    Сохраняет программу тренировок с указанным ID.
+    
+    Args:
+        user_id: ID пользователя
+        program_id: ID программы
+        program_data: Словарь с данными программы {день: [упражнения]}
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Удаляем старые упражнения для этой программы
+    cursor.execute("DELETE FROM programs WHERE program_id = ? AND user_id = ?", (program_id, user_id))
+    
+    # Сохраняем новую программу с сохранением порядка
+    for day, exercises in program_data.items():
+        for order_index, exercise_data in enumerate(exercises):
+            cursor.execute(
+                "INSERT INTO programs (program_id, user_id, day, exercise, sets, order_index) VALUES (?, ?, ?, ?, ?, ?)",
+                (program_id, user_id, day, exercise_data['exercise'], exercise_data['sets'], order_index)
+            )
+    
+    conn.commit()
+    conn.close()
+
+
+def get_user_programs(user_id: int) -> List[Dict]:
+    """
+    Получает список всех программ пользователя.
+    
+    Args:
+        user_id: ID пользователя
+    
+    Returns:
+        Список программ [{'id': 1, 'program_name': '...', 'program_type': '...', 'workout_count': ...}, ...]
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT id, program_name, program_type, workout_count
+        FROM workout_programs
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+    """, (user_id,))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return [
+        {
+            'id': row['id'],
+            'program_name': row['program_name'],
+            'program_type': row['program_type'],
+            'workout_count': row['workout_count']
+        }
+        for row in rows
+    ]
+
+
+def get_program_by_id(user_id: int, program_id: int, day: str = None) -> Dict[str, List[Dict]]:
+    """
+    Получает программу тренировок по ID.
+    
+    Args:
+        user_id: ID пользователя
+        program_id: ID программы
+        day: День недели (опционально)
+    
+    Returns:
+        Словарь с программой {день: [упражнения]} в правильном порядке
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    if day:
+        cursor.execute("""
+            SELECT day, exercise, sets, order_index 
+            FROM programs 
+            WHERE user_id = ? AND program_id = ? AND day = ? 
+            ORDER BY order_index
+        """, (user_id, program_id, day))
+    else:
+        cursor.execute("""
+            SELECT day, exercise, sets, order_index 
+            FROM programs 
+            WHERE user_id = ? AND program_id = ? 
+            ORDER BY day, order_index
+        """, (user_id, program_id))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    program = {}
+    for row in rows:
+        day_name = row['day']
+        if day_name not in program:
+            program[day_name] = []
+        program[day_name].append({
+            'exercise': row['exercise'],
+            'sets': row['sets']
+        })
+    
+    return program
+
+
+def delete_workout_program(user_id: int, program_id: int):
+    """
+    Удаляет программу тренировок (каскадное удаление через FOREIGN KEY).
+    
+    Args:
+        user_id: ID пользователя
+        program_id: ID программы
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Удаляем программу (упражнения удалятся автоматически через CASCADE)
+    cursor.execute("""
+        DELETE FROM workout_programs 
+        WHERE id = ? AND user_id = ?
+    """, (program_id, user_id))
+    
+    conn.commit()
+    conn.close()
+
+
+def save_manual_program_workout(user_id: int, program_id: int, workout_number: int, exercises: List[Dict]):
+    """
+    Сохраняет тренировку ручной программы в таблицу programs.
+    
+    Args:
+        user_id: ID пользователя
+        program_id: ID программы
+        workout_number: Номер тренировки (1, 2, 3, ...)
+        exercises: Список упражнений [{'exercise': название, 'sets': [{set_number: 1, reps: 20}, ...]}]
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Используем "Тренировка N" как день недели
+    day = f"Тренировка {workout_number}"
+    
+    # Удаляем старые упражнения для этой тренировки
+    cursor.execute("""
+        DELETE FROM programs 
+        WHERE program_id = ? AND user_id = ? AND day = ?
+    """, (program_id, user_id, day))
+    
+    # Сохраняем упражнения
+    for order_index, exercise in enumerate(exercises):
+        exercise_name = exercise['exercise']
+        sets_count = len(exercise['sets'])
+        
+        cursor.execute("""
+            INSERT INTO programs (program_id, user_id, day, exercise, sets, order_index)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (program_id, user_id, day, exercise_name, sets_count, order_index))
+    
+    conn.commit()
+    conn.close()

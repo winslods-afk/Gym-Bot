@@ -74,6 +74,9 @@ def main():
     # Если указан WEBHOOK_URL, используем webhook (для продакшена)
     if WEBHOOK_URL:
         logger.info("Запуск в режиме webhook...")
+        logger.info(f"WEBHOOK_URL: {WEBHOOK_URL}")
+        logger.info(f"WEBHOOK_PATH: {WEBHOOK_PATH}")
+        logger.info(f"WEBHOOK_PORT: {WEBHOOK_PORT}")
         
         # Создаем веб-приложение
         app = web.Application()
@@ -84,26 +87,60 @@ def main():
             bot=bot,
         )
         webhook_requests_handler.register(app, path=WEBHOOK_PATH)
+        logger.info(f"Webhook handler зарегистрирован на пути: {WEBHOOK_PATH}")
         
         # Настраиваем startup и shutdown для webhook
-        async def on_startup():
+        async def on_startup(app):
             webhook_url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
-            await bot.set_webhook(webhook_url, drop_pending_updates=True)
-            logger.info(f"Webhook установлен: {webhook_url}")
+            logger.info(f"Устанавливаем webhook: {webhook_url}")
+            try:
+                await bot.set_webhook(webhook_url, drop_pending_updates=True)
+                logger.info(f"✅ Webhook успешно установлен: {webhook_url}")
+                
+                # Проверяем установленный webhook
+                webhook_info = await bot.get_webhook_info()
+                logger.info(f"Webhook info: URL={webhook_info.url}, pending={webhook_info.pending_update_count}, last_error={webhook_info.last_error_message}")
+            except Exception as e:
+                logger.error(f"❌ Ошибка при установке webhook: {e}", exc_info=True)
+                raise  # Пробрасываем ошибку, чтобы сервер не запустился с неработающим webhook
         
-        async def on_shutdown():
-            await bot.delete_webhook(drop_pending_updates=True)
-            logger.info("Webhook удален")
+        async def on_shutdown(app):
+            logger.info("Останавливаем webhook (shutdown)...")
+            try:
+                # Не удаляем webhook при shutdown, чтобы он оставался активным при перезапуске
+                # await bot.delete_webhook(drop_pending_updates=True)
+                await bot.session.close()
+                logger.info("✅ Соединения закрыты")
+            except Exception as e:
+                logger.error(f"Ошибка при shutdown: {e}", exc_info=True)
         
         # Регистрируем startup и shutdown handlers
-        app.on_startup.append(lambda _: asyncio.create_task(on_startup()))
-        app.on_shutdown.append(lambda _: asyncio.create_task(on_shutdown()))
+        app.on_startup.append(on_startup)
+        app.on_shutdown.append(on_shutdown)
+        
+        # Добавляем простой обработчик для корневого пути (чтобы не было 404)
+        async def root_handler(request):
+            return web.Response(text="Bot is running! Webhook path: " + WEBHOOK_PATH, status=200)
+        
+        app.router.add_get("/", root_handler)
+        
+        # Добавляем обработчик для проверки статуса webhook
+        async def status_handler(request):
+            try:
+                webhook_info = await bot.get_webhook_info()
+                status_text = f"Bot Status:\nWebhook URL: {webhook_info.url}\nPending updates: {webhook_info.pending_update_count}\nLast error: {webhook_info.last_error_message}"
+                return web.Response(text=status_text, status=200)
+            except Exception as e:
+                return web.Response(text=f"Error getting webhook info: {e}", status=500)
+        
+        app.router.add_get("/status", status_handler)
         
         # Настраиваем приложение для работы с aiogram
         setup_application(app, dp, bot=bot)
         
         # Запускаем веб-сервер (синхронная функция)
         logger.info(f"Веб-сервер запущен на порту {WEBHOOK_PORT}")
+        logger.info(f"Ожидаем обновления на: {WEBHOOK_URL}{WEBHOOK_PATH}")
         run_app(app, host="0.0.0.0", port=WEBHOOK_PORT)
     else:
         # Используем polling (для локальной разработки)

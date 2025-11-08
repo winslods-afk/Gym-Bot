@@ -109,10 +109,24 @@ def main():
             try:
                 # Не удаляем webhook при shutdown, чтобы он оставался активным при перезапуске
                 # await bot.delete_webhook(drop_pending_updates=True)
-                await bot.session.close()
-                logger.info("✅ Соединения закрыты")
+                pass
             except Exception as e:
                 logger.error(f"Ошибка при shutdown: {e}", exc_info=True)
+        
+        # Cleanup context для правильного закрытия соединений
+        async def cleanup_context(app):
+            # При запуске ничего не делаем, соединения создаются автоматически
+            yield
+            # При завершении закрываем соединения
+            logger.info("Закрываем соединения...")
+            try:
+                if bot.session:
+                    await bot.session.close()
+                logger.info("✅ Соединения закрыты")
+            except Exception as e:
+                logger.error(f"Ошибка при закрытии соединений: {e}", exc_info=True)
+        
+        app.cleanup_ctx.append(cleanup_context)
         
         # Регистрируем startup и shutdown handlers
         app.on_startup.append(on_startup)
@@ -138,7 +152,8 @@ def main():
         # Настраиваем приложение для работы с aiogram
         setup_application(app, dp, bot=bot)
         
-        # Запускаем веб-сервер (синхронная функция)
+        # Запускаем веб-сервер (синхронная функция, блокирующая)
+        # Соединения будут закрыты автоматически через cleanup_context
         logger.info(f"Веб-сервер запущен на порту {WEBHOOK_PORT}")
         logger.info(f"Ожидаем обновления на: {WEBHOOK_URL}{WEBHOOK_PATH}")
         run_app(app, host="0.0.0.0", port=WEBHOOK_PORT)

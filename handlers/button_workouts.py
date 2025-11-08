@@ -3,7 +3,7 @@
 Управляет созданием и выполнением тренировок через кнопки.
 """
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from database import (
@@ -74,7 +74,6 @@ async def process_workout_count(callback: CallbackQuery, state: FSMContext):
             callback_data=f"create_workout_{i}"
         )])
     
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     
     await callback.message.answer(

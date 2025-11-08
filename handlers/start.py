@@ -13,7 +13,8 @@ from database import (
 from utils.keyboards import (
     get_mode_selection_keyboard, get_save_program_keyboard,
     get_workout_count_keyboard_with_cancel, get_program_selection_keyboard,
-    get_delete_program_keyboard, get_restart_keyboard, get_main_keyboard
+    get_delete_program_keyboard, get_restart_keyboard, get_main_keyboard,
+    get_persistent_menu_keyboard
 )
 from parser import parse_program
 import database
@@ -44,10 +45,17 @@ async def cmd_start(message: Message):
     programs = get_user_programs(user_id)
     has_programs = len(programs) > 0
     
+    # Устанавливаем постоянное меню
     await message.answer(
         "Привет! Я бот для отслеживания тренировок и рабочих весов.\n\n"
         "Выбери режим работы:",
         reply_markup=get_mode_selection_keyboard()
+    )
+    
+    # Отправляем сообщение с постоянным меню
+    await message.answer(
+        "Используй кнопки меню для быстрого доступа:",
+        reply_markup=get_persistent_menu_keyboard()
     )
 
 
@@ -265,6 +273,12 @@ async def save_program_callback(callback: CallbackQuery, state: FSMContext):
         "Выбери режим работы:",
         reply_markup=get_mode_selection_keyboard()
     )
+    
+    # Возвращаем постоянное меню
+    await callback.message.answer(
+        "Используй кнопки меню для быстрого доступа:",
+        reply_markup=get_persistent_menu_keyboard()
+    )
 
 
 @router.message(F.text == "Начать тренировку")
@@ -281,7 +295,8 @@ async def start_training_button(message: Message):
     if not programs:
         await message.answer(
             "❌ У тебя нет программ тренировок.\n\n"
-            "Создай программу через /start"
+            "Создай программу через /start",
+            reply_markup=get_persistent_menu_keyboard()
         )
         return
     
@@ -335,10 +350,10 @@ async def stats_button(message: Message):
     await cmd_stats(message)
 
 
-@router.message(F.text == "🔄 Перезагрузить бота")
+@router.message(F.text == "Перезапустить бота")
 async def restart_bot(message: Message, state: FSMContext):
     """
-    Обработчик кнопки "Перезагрузить бота".
+    Обработчик кнопки "Перезапустить бота".
     Очищает все состояния и возвращает в начало.
     """
     user_id = message.from_user.id
@@ -373,14 +388,28 @@ async def restart_bot(message: Message, state: FSMContext):
         "🔄 Бот перезагружен!\n\n"
         "Привет! Я бот для отслеживания тренировок и рабочих весов.\n\n"
         "Выбери режим работы:",
-        reply_markup=get_restart_keyboard(has_programs)
+        reply_markup=get_mode_selection_keyboard()
+    )
+    
+    # Возвращаем постоянное меню
+    await message.answer(
+        "Используй кнопки меню для быстрого доступа:",
+        reply_markup=get_persistent_menu_keyboard()
     )
 
 
-@router.message(F.text == "Удалить программу")
-async def delete_program_button(message: Message):
+@router.message(F.text == "🔄 Перезагрузить бота")
+async def restart_bot_old(message: Message, state: FSMContext):
     """
-    Обработчик кнопки "Удалить программу".
+    Обработчик старой кнопки "🔄 Перезагрузить бота" (для обратной совместимости).
+    """
+    await restart_bot(message, state)
+
+
+@router.message(F.text == "Удалить тренировку")
+async def delete_training_button(message: Message):
+    """
+    Обработчик кнопки "Удалить тренировку".
     Показывает список программ для удаления.
     """
     user_id = message.from_user.id
@@ -388,13 +417,25 @@ async def delete_program_button(message: Message):
     programs = get_user_programs(user_id)
     
     if not programs:
-        await message.answer("❌ У тебя нет программ для удаления.")
+        await message.answer(
+            "❌ У тебя нет программ для удаления.",
+            reply_markup=get_persistent_menu_keyboard()
+        )
         return
     
     await message.answer(
         "Выбери программу для удаления:",
         reply_markup=get_delete_program_keyboard(programs, user_id)
     )
+
+
+@router.message(F.text == "Удалить программу")
+async def delete_program_button(message: Message):
+    """
+    Обработчик кнопки "Удалить программу" (для обратной совместимости).
+    Показывает список программ для удаления.
+    """
+    await delete_training_button(message)
 
 
 @router.callback_query(F.data.startswith("delete_program_"))
@@ -418,6 +459,12 @@ async def delete_program_callback(callback: CallbackQuery):
     await callback.message.answer(
         "Выбери режим работы:",
         reply_markup=get_mode_selection_keyboard()
+    )
+    
+    # Возвращаем постоянное меню
+    await callback.message.answer(
+        "Используй кнопки меню для быстрого доступа:",
+        reply_markup=get_persistent_menu_keyboard()
     )
 
 

@@ -6,7 +6,11 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from database import get_program, save_result, get_last_weight, get_program_by_id
+from database import (
+    get_program, save_result, get_last_weight, get_program_by_id,
+    create_workout_session, add_workout_exercise, add_exercise_set,
+    save_set_weight, get_current_set_id
+)
 from utils.keyboards import get_training_control_keyboard, get_confirm_keyboard
 from utils.helpers import format_training_exercises
 import database
@@ -21,7 +25,7 @@ class TrainingState(StatesGroup):
 
 
 # Хранилище текущих тренировок пользователей
-# Формат: {user_id: {'day': день, 'exercises': [...], 'current_ex': индекс, 'current_set': номер}}
+# Формат: {user_id: {'workout_id': ID, 'day': день, 'exercises': [...], 'current_ex': индекс, 'current_set': номер, 'program_id': ID}}
 training_sessions = {}
 
 
@@ -180,23 +184,42 @@ async def confirm_weight_callback(callback: CallbackQuery, state: FSMContext):
         return
     
     exercise = session['exercises'][session['current_ex']]
-    exercise_id = exercise.get('exercise_id')
     exercise_name = exercise['exercise']
     set_number = session['current_set']
+    workout_id = session.get('workout_id')
     
-    if not exercise_id:
-        await callback.answer("❌ Ошибка: ID упражнения не найден", show_alert=True)
-        return
-    
-    # Получаем последний вес
-    last_weight = get_last_weight(user_id, exercise_name, set_number)
-    
-    if not last_weight:
-        await callback.answer("❌ Предыдущий вес не найден", show_alert=True)
-        return
-    
-    # Сохраняем вес
-    save_result(user_id, exercise_id, session['day'], exercise_name, set_number, last_weight)
+    if workout_id:
+        # Используем новую структуру с Workout ID -> Exercise ID -> Set ID -> Weight ID
+        set_id = get_current_set_id(workout_id, session['current_ex'], set_number)
+        if not set_id:
+            await callback.answer("❌ Ошибка: ID подхода не найден", show_alert=True)
+            return
+        
+        # Получаем последний вес (из старой структуры для обратной совместимости)
+        last_weight = get_last_weight(user_id, exercise_name, set_number)
+        
+        if not last_weight:
+            await callback.answer("❌ Предыдущий вес не найден", show_alert=True)
+            return
+        
+        # Сохраняем вес через новую структуру (Weight ID)
+        save_set_weight(set_id, last_weight)
+    else:
+        # Обратная совместимость со старой структурой
+        exercise_id = exercise.get('exercise_id')
+        if not exercise_id:
+            await callback.answer("❌ Ошибка: ID упражнения не найден", show_alert=True)
+            return
+        
+        # Получаем последний вес
+        last_weight = get_last_weight(user_id, exercise_name, set_number)
+        
+        if not last_weight:
+            await callback.answer("❌ Предыдущий вес не найден", show_alert=True)
+            return
+        
+        # Сохраняем вес
+        save_result(user_id, exercise_id, session['day'], exercise_name, set_number, last_weight)
     
     await callback.answer(f"✅ Сохранено: {last_weight} кг")
     
@@ -238,16 +261,26 @@ async def process_weight_input(message: Message, state: FSMContext):
         return
     
     exercise = session['exercises'][session['current_ex']]
-    exercise_id = exercise.get('exercise_id')
     exercise_name = exercise['exercise']
     set_number = session['current_set']
+    workout_id = session.get('workout_id')
     
-    if not exercise_id:
-        await message.answer("❌ Ошибка: ID упражнения не найден")
-        return
-    
-    # Сохраняем вес
-    save_result(user_id, exercise_id, session['day'], exercise_name, set_number, weight)
+    if workout_id:
+        # Используем новую структуру с Workout ID -> Exercise ID -> Set ID -> Weight ID
+        set_id = get_current_set_id(workout_id, session['current_ex'], set_number)
+        if not set_id:
+            await message.answer("❌ Ошибка: ID подхода не найден")
+            return
+        
+        # Сохраняем вес через новую структуру (Weight ID)
+        save_set_weight(set_id, weight)
+    else:
+        # Обратная совместимость со старой структурой
+        exercise_id = exercise.get('exercise_id')
+        if not exercise_id:
+            await message.answer("❌ Ошибка: ID упражнения не найден")
+            return
+        save_result(user_id, exercise_id, session['day'], exercise_name, set_number, weight)
     
     await message.answer(f"✅ Сохранено: {weight} кг")
     
@@ -291,16 +324,26 @@ async def process_weight_direct(message: Message, state: FSMContext):
         return
     
     exercise = session['exercises'][session['current_ex']]
-    exercise_id = exercise.get('exercise_id')
     exercise_name = exercise['exercise']
     set_number = session['current_set']
+    workout_id = session.get('workout_id')
     
-    if not exercise_id:
-        await message.answer("❌ Ошибка: ID упражнения не найден")
-        return
-    
-    # Сохраняем вес
-    save_result(user_id, exercise_id, session['day'], exercise_name, set_number, weight)
+    if workout_id:
+        # Используем новую структуру с Workout ID -> Exercise ID -> Set ID -> Weight ID
+        set_id = get_current_set_id(workout_id, session['current_ex'], set_number)
+        if not set_id:
+            await message.answer("❌ Ошибка: ID подхода не найден")
+            return
+        
+        # Сохраняем вес через новую структуру (Weight ID)
+        save_set_weight(set_id, weight)
+    else:
+        # Обратная совместимость со старой структурой
+        exercise_id = exercise.get('exercise_id')
+        if not exercise_id:
+            await message.answer("❌ Ошибка: ID упражнения не найден")
+            return
+        save_result(user_id, exercise_id, session['day'], exercise_name, set_number, weight)
     
     await message.answer(f"✅ Сохранено: {weight} кг")
     
@@ -398,10 +441,39 @@ async def start_training_session_with_program(message: Message, program_id: int)
         await message.answer("❌ Программа не найдена.")
         return
     
+    # Создаем сессию тренировки (Workout ID)
+    workout_id = create_workout_session(user_id, program_id=program_id, day=day)
+    
+    # Добавляем упражнения в тренировку в правильном порядке (Exercise ID)
+    exercise_ids = []
+    for order_index, exercise_data in enumerate(exercises):
+        exercise_template_id = exercise_data.get('exercise_id')
+        exercise_name = exercise_data['exercise']
+        sets_count = exercise_data['sets']
+        
+        # Создаем упражнение в тренировке
+        exercise_id = add_workout_exercise(
+            workout_id=workout_id,
+            exercise_template_id=exercise_template_id,
+            exercise_name=exercise_name,
+            order_index=order_index
+        )
+        exercise_ids.append(exercise_id)
+        
+        # Добавляем подходы для этого упражнения в правильном порядке (Set ID)
+        for set_num in range(1, sets_count + 1):
+            add_exercise_set(
+                exercise_id=exercise_id,
+                set_number=set_num,
+                order_index=set_num - 1
+            )
+    
     # Сохраняем сессию тренировки
     training_sessions[user_id] = {
+        'workout_id': workout_id,  # Workout ID
         'day': day,
         'exercises': exercises,
+        'exercise_ids': exercise_ids,  # Exercise IDs в порядке
         'current_ex': 0,
         'current_set': 1,
         'program_id': program_id
